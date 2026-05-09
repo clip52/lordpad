@@ -59,11 +59,17 @@ const QHash<QString, QString>& extensionTable()
         { QStringLiteral("cfg"),      QStringLiteral("props") },
 
         // Markup / web
-        { QStringLiteral("xml"),      QStringLiteral("html") },
+        { QStringLiteral("xml"),      QStringLiteral("xml") },
+        { QStringLiteral("xsd"),      QStringLiteral("xml") },
+        { QStringLiteral("xsl"),      QStringLiteral("xml") },
+        { QStringLiteral("xslt"),     QStringLiteral("xml") },
+        { QStringLiteral("rss"),      QStringLiteral("xml") },
+        { QStringLiteral("atom"),     QStringLiteral("xml") },
+        { QStringLiteral("plist"),    QStringLiteral("xml") },
         { QStringLiteral("html"),     QStringLiteral("html") },
         { QStringLiteral("htm"),      QStringLiteral("html") },
         { QStringLiteral("xhtml"),    QStringLiteral("html") },
-        { QStringLiteral("svg"),      QStringLiteral("html") },
+        { QStringLiteral("svg"),      QStringLiteral("xml") },
         { QStringLiteral("css"),      QStringLiteral("css") },
         { QStringLiteral("md"),       QStringLiteral("markdown") },
         { QStringLiteral("markdown"), QStringLiteral("markdown") },
@@ -111,11 +117,18 @@ QString lexerForBasename(const QString& basename)
 
 // Try to create a Lexilla lexer; on null return an empty string so the
 // caller can apply a fallback. Otherwise return the original name.
+//
+// Some friendly names we use don't match Lexilla module names. Translate
+// them here so callers can keep using the familiar identifiers
+// ("html" -> "hypertext", "javascript" -> "cpp" upstream falls back, etc).
 Scintilla::ILexer5* tryCreateLexer(const QString& name)
 {
     if (name.isEmpty())
         return nullptr;
-    const QByteArray utf8 = name.toUtf8();
+    QString translated = name;
+    if (translated == QStringLiteral("html"))
+        translated = QStringLiteral("hypertext");
+    const QByteArray utf8 = translated.toUtf8();
     return CreateLexer(utf8.constData());
 }
 

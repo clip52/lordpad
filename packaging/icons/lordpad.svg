@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>LordPad</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a1f2e"/>
+      <stop offset="1" stop-color="#2d3550"/>
+    </linearGradient>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fafbff"/>
+      <stop offset="1" stop-color="#dde2f0"/>
+    </linearGradient>
+    <linearGradient id="crown" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd95a"/>
+      <stop offset="0.55" stop-color="#f7b32b"/>
+      <stop offset="1" stop-color="#c98a14"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5cf2c4"/>
+      <stop offset="1" stop-color="#5cb8ff"/>
+    </linearGradient>
+    <radialGradient id="gem" cx="0.5" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.4" stop-color="#ff5c8a"/>
+      <stop offset="1" stop-color="#a02050"/>
+    </radialGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2"/>
+    </filter>
+  </defs>
+
+  <!-- Rounded background -->
+  <rect x="0" y="0" width="256" height="256" rx="44" ry="44" fill="url(#bg)"/>
+
+  <!-- Subtle grid hint -->
+  <g opacity="0.06" stroke="#cdd5ff" stroke-width="1">
+    <line x1="0" y1="64"  x2="256" y2="64"/>
+    <line x1="0" y1="128" x2="256" y2="128"/>
+    <line x1="0" y1="192" x2="256" y2="192"/>
+    <line x1="64"  y1="0" x2="64"  y2="256"/>
+    <line x1="128" y1="0" x2="128" y2="256"/>
+    <line x1="192" y1="0" x2="192" y2="256"/>
+  </g>
+
+  <!-- Document page (slight tilt) -->
+  <g transform="translate(48,68) rotate(-4 80 80)">
+    <!-- shadow -->
+    <path d="M6,12 Q6,6 12,6 H120 L156,42 V174 Q156,180 150,180 H12 Q6,180 6,174 Z"
+          fill="#000" opacity="0.35" filter="url(#soft)"/>
+    <!-- page -->
+    <path d="M0,8 Q0,0 8,0 H116 L156,40 V172 Q156,180 148,180 H8 Q0,180 0,172 Z"
+          fill="url(#page)" stroke="#1a1f2e" stroke-width="2.5"/>
+    <!-- folded corner -->
+    <path d="M116,0 L116,32 Q116,40 124,40 L156,40 Z"
+          fill="#aab2c5" stroke="#1a1f2e" stroke-width="2.5"/>
+    <path d="M116,0 L156,40" stroke="#1a1f2e" stroke-width="2"/>
+
+    <!-- Code lines (colored, mimic syntax highlighting) -->
+    <line x1="20" y1="62"  x2="60"  y2="62"  stroke="#c586c0" stroke-width="6" stroke-linecap="round"/>
+    <line x1="65" y1="62"  x2="120" y2="62"  stroke="#9cdcfe" stroke-width="6" stroke-linecap="round"/>
+
+    <line x1="32" y1="84"  x2="60"  y2="84"  stroke="#569cd6" stroke-width="6" stroke-linecap="round"/>
+    <line x1="64" y1="84"  x2="100" y2="84"  stroke="#ce9178" stroke-width="6" stroke-linecap="round"/>
+    <line x1="104" y1="84" x2="135" y2="84"  stroke="#b5cea8" stroke-width="6" stroke-linecap="round"/>
+
+    <line x1="32" y1="106" x2="56"  y2="106" stroke="#dcdcaa" stroke-width="6" stroke-linecap="round"/>
+    <line x1="60" y1="106" x2="115" y2="106" stroke="#ce9178" stroke-width="6" stroke-linecap="round"/>
+
+    <line x1="20" y1="128" x2="36"  y2="128" stroke="#6a9955" stroke-width="6" stroke-linecap="round"/>
+    <line x1="40" y1="128" x2="120" y2="128" stroke="#6a9955" stroke-width="6" stroke-linecap="round"/>
+
+    <line x1="32" y1="150" x2="60"  y2="150" stroke="#569cd6" stroke-width="6" stroke-linecap="round"/>
+    <line x1="64" y1="150" x2="125" y2="150" stroke="#9cdcfe" stroke-width="6" stroke-linecap="round"/>
+
+    <!-- caret -->
+    <rect x="125" y="80" width="3" height="12" fill="#ff5c8a">
+      <animate attributeName="opacity" values="1;0;1" dur="1.2s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+
+  <!-- Crown (the "Lord" mark) -->
+  <g transform="translate(58,18)">
+    <!-- crown band shadow -->
+    <rect x="-4" y="34" width="148" height="14" rx="4" fill="#000" opacity="0.3" filter="url(#soft)"/>
+    <!-- crown shape: 3 spikes + base band -->
+    <path d="M0,40 L18,4 L36,32 L70,0 L104,32 L122,4 L140,40 L140,52 L0,52 Z"
+          fill="url(#crown)" stroke="#5a3b04" stroke-width="2.5" stroke-linejoin="round"/>
+    <!-- band highlight -->
+    <rect x="4" y="42" width="132" height="3" fill="#fff" opacity="0.45"/>
+    <!-- gems -->
+    <circle cx="18"  cy="36" r="5" fill="#5cb8ff" stroke="#0a1e3a" stroke-width="1.5"/>
+    <circle cx="70"  cy="32" r="6" fill="url(#gem)" stroke="#0a1e3a" stroke-width="1.5"/>
+    <circle cx="122" cy="36" r="5" fill="#5cf2c4" stroke="#0a1e3a" stroke-width="1.5"/>
+  </g>
+
+  <!-- Accent badge bottom-right with "L" monogram -->
+  <g transform="translate(170,168)">
+    <circle cx="36" cy="36" r="40" fill="url(#accent)" stroke="#0a1e3a" stroke-width="3"/>
+    <circle cx="36" cy="36" r="40" fill="none" stroke="#fff" stroke-width="1.5" opacity="0.4"/>
+    <!-- stylized "L" -->
+    <path d="M22,16 L22,56 L52,56" fill="none" stroke="#0a1e3a" stroke-width="7"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- tiny serif at top -->
+    <line x1="16" y1="18" x2="28" y2="18" stroke="#0a1e3a" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>

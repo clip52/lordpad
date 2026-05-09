@@ -1,7 +1,10 @@
 #pragma once
 #include <QDockWidget>
+#include <QList>
 #include <QString>
 #include <QModelIndex>
+
+#include "../LspClient.h"   // LspSymbol — small struct, header-light
 
 class ScintillaEdit;
 class QListView;
@@ -21,6 +24,12 @@ public:
 
     // Recompute list from the current editor's text. Caller invokes after edits.
     void refresh();
+
+    // M13: replace the list with LSP-provided document symbols. Each entry is
+    // shown as `containerName.name` so hierarchy stays readable in the flat
+    // QListView. Calling with an empty list reverts to the regex-based outline
+    // produced by the next refresh().
+    void setLspSymbols(const QList<LspSymbol>& syms);
 
 signals:
     void gotoLineRequested(int line);   // 1-based; emitted on item activation

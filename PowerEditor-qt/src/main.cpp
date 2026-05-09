@@ -14,27 +14,27 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     QCoreApplication::setOrganizationName("clip52");
     QCoreApplication::setOrganizationDomain("github.com/clip52");
-    QCoreApplication::setApplicationName("notepadpp-qt");
-    QCoreApplication::setApplicationVersion("0.1.0");
+    QCoreApplication::setApplicationName("LordPad");
+    QCoreApplication::setApplicationVersion("0.9");
 
     // Window icon: prefer the icon theme (when installed via .desktop + hicolor),
     // fall back to the Qt resource so the running binary always has an icon
     // (taskbar / Alt-Tab / window decoration / about dialog).
     {
-        QIcon themed = QIcon::fromTheme(QStringLiteral("notepadpp-qt"));
-        if (themed.isNull()) themed = QIcon(QStringLiteral(":/icons/notepadpp-qt.svg"));
+        QIcon themed = QIcon::fromTheme(QStringLiteral("lordpad"));
+        if (themed.isNull()) themed = QIcon(QStringLiteral(":/icons/lordpad.svg"));
         app.setWindowIcon(themed);
     }
 
     // Link the running app to its .desktop entry so the window manager groups
     // the taskbar icon correctly under the launcher and inherits its metadata.
-    QGuiApplication::setDesktopFileName(QStringLiteral("notepadpp-qt"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("lordpad"));
 
     // Default UI language: pt-BR (loadDefaultTranslations falls back to pt-BR per project policy).
     I18n::loadDefaultTranslations(&app);
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("Notepad++ Qt — native Linux Qt6 port");
+    parser.setApplicationDescription("LordPad — editor de código nativo Linux Qt6");
     parser.addHelpOption();
     parser.addVersionOption();
     parser.addPositionalArgument("files", "Files to open", "[files...]");

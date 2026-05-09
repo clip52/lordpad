@@ -25,6 +25,9 @@ public slots:
 
 signals:
     void commandFinished(int exitCode);
+    // M9: emitted when the user double-clicks a line whose text matches a
+    // known compiler/linter "file:line[:col]" pattern. line/column are 1-based.
+    void locationActivated(const QString& filePath, int line, int column);
 
 private slots:
     void onRunClicked();
@@ -34,6 +37,8 @@ private slots:
     void onReadyReadStdout();
     void onProcessFinished(int exitCode, int exitStatus);
     void onProcessError(int error);
+    // M9: error parser hook.
+    void onOutputDoubleClick(int position, int line);
 
 private:
     void appendOutput(const QByteArray& bytes);

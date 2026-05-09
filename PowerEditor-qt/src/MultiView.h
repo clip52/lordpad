@@ -43,6 +43,8 @@ public:
 signals:
     void currentTabChanged(EditorTab* tab);
     void tabCloseRequested(EditorTab* tab);
+    // Double-click em área vazia da tab bar pede um novo arquivo em branco.
+    void newTabRequested();
 
 protected:
     bool eventFilter(QObject* watched, QEvent* event) override;

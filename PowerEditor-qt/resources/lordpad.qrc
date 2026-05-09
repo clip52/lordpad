@@ -1,0 +1,11 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/themes">
+        <file>themes/light.qss</file>
+        <file>themes/dark.qss</file>
+        <file>themes/dracula.qss</file>
+    </qresource>
+    <qresource prefix="/icons">
+        <file>icons/lordpad.svg</file>
+    </qresource>
+</RCC>

@@ -91,6 +91,16 @@ void CrossGroupTabBar::mouseMoveEvent(QMouseEvent* event)
     // owns the gesture from this point.
 }
 
+void CrossGroupTabBar::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    if (event->button() == Qt::LeftButton && tabAt(event->pos()) < 0) {
+        emit emptyAreaDoubleClicked();
+        event->accept();
+        return;
+    }
+    QTabBar::mouseDoubleClickEvent(event);
+}
+
 void CrossGroupTabBar::mouseReleaseEvent(QMouseEvent* event)
 {
     m_dragStart  = QPoint();

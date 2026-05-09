@@ -50,6 +50,13 @@ QTabWidget* MultiView::createGroup()
     wireGroup(tw);
     // Cross-group drop: move the dragged tab from sourceBar's parent QTabWidget
     // into THIS group at the drop position.
+    // Double-click em área vazia da bar → pede novo arquivo + foca o grupo clicado.
+    connect(bar, &CrossGroupTabBar::emptyAreaDoubleClicked, this,
+            [this, srcBar = bar]() {
+        if (auto* tw = qobject_cast<QTabWidget*>(srcBar->parentWidget()))
+            setCurrentGroup(tw);
+        emit newTabRequested();
+    });
     connect(bar, &CrossGroupTabBar::tabDroppedFromOther, this,
             [this, dstBar = bar](CrossGroupTabBar* sourceBar, int sourceIndex, int insertIndex) {
         if (!sourceBar || sourceBar == dstBar) return;

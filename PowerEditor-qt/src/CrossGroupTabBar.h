@@ -21,6 +21,7 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
 
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragMoveEvent(QDragMoveEvent* event) override;
@@ -31,6 +32,9 @@ signals:
     // Receiver should: take widget+title+icon+tooltip from sourceBar's tab at sourceIndex,
     // remove it from source, and insert it on this bar's QTabWidget at insertIndex.
     void tabDroppedFromOther(CrossGroupTabBar* sourceBar, int sourceIndex, int insertIndex);
+
+    // Emitted on double-click in the empty area of the tab bar (no tab under cursor).
+    void emptyAreaDoubleClicked();
 
 private:
     QPoint m_dragStart;

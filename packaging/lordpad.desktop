@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=LordPad
+GenericName=Code Editor
+Comment=Editor de código nativo Linux Qt6
+TryExec=lordpad
+Exec=lordpad %F
+Icon=lordpad
+Terminal=false
+Categories=Development;TextEditor;
+MimeType=text/plain;text/x-c;text/x-c++;text/x-python;text/x-shellscript;application/json;application/xml;text/markdown;
+StartupNotify=true

@@ -235,6 +235,29 @@ void FunctionListPanel::refresh()
     applyFilter();
 }
 
+void FunctionListPanel::setLspSymbols(const QList<LspSymbol>& syms)
+{
+    if (!m_model) return;
+    if (syms.isEmpty()) {
+        // No LSP data — let the next refresh() repopulate from regex.
+        refresh();
+        return;
+    }
+    m_model->removeRows(0, m_model->rowCount());
+    for (const LspSymbol& s : syms) {
+        QString display = s.name;
+        if (!s.containerName.isEmpty())
+            display = s.containerName + QStringLiteral(".") + display;
+        display += QStringLiteral("   (linha %1)").arg(s.line + 1);
+        auto* item = new QStandardItem(display);
+        // m_listView's onItemActivated reads the line from UserRole as 1-based.
+        item->setData(s.line + 1, Qt::UserRole);
+        item->setEditable(false);
+        m_model->appendRow(item);
+    }
+    applyFilter();
+}
+
 void FunctionListPanel::onFilterTextChanged(const QString& /*text*/)
 {
     applyFilter();

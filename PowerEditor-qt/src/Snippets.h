@@ -1,9 +1,11 @@
 #pragma once
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 #include <QHash>
 #include <QList>
+#include <ScintillaTypes.h>
 
 class ScintillaEdit;
 
@@ -34,12 +36,33 @@ public:
     // Logic:
     //   - get the word immediately before caret (word chars only)
     //   - look up snippet for current lexer name; if none, fall back to "" global bucket
-    //   - if found: replace trigger word with body; expand ${1}..${N} placeholders
-    //     (for now: just remove placeholder syntax and place caret at the FIRST ${1}).
+    //   - if found: replace trigger word with body, parse ${N} / ${N:default}
+    //     placeholders, start a navigation session and select the first stop.
     bool tryExpand(ScintillaEdit* editor, const QString& currentLexerName);
+
+    // True iff there's an active multi-stop snippet session for `editor`.
+    bool hasActiveSession(ScintillaEdit* editor) const;
+
+    // Move to the next / previous tabstop in the active session. Returns true
+    // when the navigation key was consumed (caller should swallow the event).
+    bool advanceTabstop(ScintillaEdit* editor);
+    bool retreatTabstop(ScintillaEdit* editor);
+
+    // Cancel the active session immediately (e.g. on Escape).
+    void cancelSession(ScintillaEdit* editor);
 
 signals:
     void changed();
+
+private slots:
+    void onEditorModified(Scintilla::ModificationFlags type,
+                          Scintilla::Position position,
+                          Scintilla::Position length,
+                          Scintilla::Position linesAdded,
+                          const QByteArray& text,
+                          Scintilla::Position line,
+                          Scintilla::FoldLevel foldNow,
+                          Scintilla::FoldLevel foldPrev);
 
 private:
     void load();
@@ -48,4 +71,25 @@ private:
 
     // m_buckets[lexerName][trigger] -> Snippet.
     QHash<QString, QHash<QString, Snippet>> m_buckets;
+
+    // ---- Active tabstop session ------------------------------------------
+    struct Stop {
+        int  number = 0;          // 1..K; 0 means "exit position"
+        int  pos    = 0;          // absolute byte offset in the buffer
+        int  len    = 0;          // bytes occupied by the placeholder default (0 if empty)
+    };
+    struct Session {
+        QPointer<ScintillaEdit> editor;
+        QList<Stop> stops;        // ordered by number (1, 2, ..., K, then 0)
+        int         currentIndex = -1;
+        // Bookkeeping for the modification listener below: when modifications
+        // happen we shift `pos` for stops at or after the change point.
+    };
+    Session m_session;
+
+    // Place caret at the active stop and select its default text. Returns
+    // false (and ends the session) if the stop list is exhausted.
+    bool selectStop(int index);
+
+    void endSession();
 };

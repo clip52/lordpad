@@ -36,6 +36,7 @@ private slots:
     void onResultActivated(const QModelIndex& index);
     void onSearchFinished();
     void appendBatch();
+    void onReplaceAll();   // M12
 
 public:
     struct Hit {
@@ -56,6 +57,10 @@ private:
     QCheckBox*   m_regexChk   = nullptr;
     QCheckBox*   m_hiddenChk  = nullptr;
     QCheckBox*   m_symlinkChk = nullptr;
+    QCheckBox*   m_useRgChk   = nullptr;   // M11
+    QCheckBox*   m_extendedChk = nullptr;  // M12: \n, \t, \xNN... escapes
+    QLineEdit*   m_replaceEdit = nullptr;  // M12: replace-in-files target
+    QPushButton* m_replaceAllBtn = nullptr;
 
     QPushButton* m_searchBtn  = nullptr;
     QPushButton* m_stopBtn    = nullptr;
@@ -68,6 +73,9 @@ private:
 
     // worker state
     QFutureWatcher<void>* m_watcher = nullptr;
+    class QProcess*       m_rgProc  = nullptr;   // M11: rg subprocess (alt path)
+    QByteArray            m_rgBuf;
+
     std::shared_ptr<std::atomic<bool>> m_cancel;
     std::shared_ptr<std::atomic<int>>  m_filesScanned;
     std::shared_ptr<std::atomic<int>>  m_matchesFound;
@@ -99,6 +107,13 @@ private:
     // called on GUI thread (via QueuedConnection) by the worker
     Q_INVOKABLE void receiveHits(const QList<FindInFilesDialog::Hit>& hits);
     Q_INVOKABLE void receiveError(const QString& message);
+
+    // M11: ripgrep path. Returns true if rg was found and started; the dialog
+    // then routes hits via the same receiveHits path.
+    bool startRipgrep(const QString& folder, const QString& pattern,
+                      const QString& filter, bool matchCase, bool wholeWord,
+                      bool regex, bool includeHidden, bool followSymlinks);
+    void parseRipgrepLine(const QByteArray& line);
 };
 
 Q_DECLARE_METATYPE(FindInFilesDialog::Hit)

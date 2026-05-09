@@ -288,38 +288,102 @@ LoadResult readFile(const QString& path)
     return r;
 }
 
-bool writeFile(const QString& path, const QByteArray& utf8, QString* error)
+namespace {
+
+// Atomic write of a fully-prepared byte buffer. Used by both writeFile()
+// and writeFileEncoded() so the QSaveFile / error handling logic lives in
+// exactly one place.
+bool writeBytes(const QString& path, const QByteArray& payload, QString* error)
 {
     QSaveFile sf(path);
     if (!sf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        if (error) {
+        if (error)
             *error = QStringLiteral("Cannot open '%1' for writing: %2").arg(path, sf.errorString());
-        }
         return false;
     }
 
-    const qint64 want = utf8.size();
-    const qint64 wrote = sf.write(utf8);
+    const qint64 want  = payload.size();
+    const qint64 wrote = sf.write(payload);
     if (wrote != want) {
-        if (error) {
+        if (error)
             *error = QStringLiteral("Short write on '%1': %2 of %3 bytes (%4)")
-                         .arg(path)
-                         .arg(wrote)
-                         .arg(want)
-                         .arg(sf.errorString());
-        }
+                         .arg(path).arg(wrote).arg(want).arg(sf.errorString());
         sf.cancelWriting();
         return false;
     }
 
     if (!sf.commit()) {
-        if (error) {
+        if (error)
             *error = QStringLiteral("Failed to commit '%1': %2").arg(path, sf.errorString());
-        }
+        return false;
+    }
+    return true;
+}
+
+// Returns the canonical BOM bytes for an encoding, or empty if the encoding
+// has no defined BOM (e.g. ISO-8859-1, windows-1252).
+QByteArray bomFor(const QString& canonEncoding)
+{
+    if (canonEncoding.compare("UTF-8",    Qt::CaseInsensitive) == 0)
+        return QByteArray("\xEF\xBB\xBF", 3);
+    if (canonEncoding.compare("UTF-16LE", Qt::CaseInsensitive) == 0)
+        return QByteArray("\xFF\xFE", 2);
+    if (canonEncoding.compare("UTF-16BE", Qt::CaseInsensitive) == 0)
+        return QByteArray("\xFE\xFF", 2);
+    if (canonEncoding.compare("UTF-32LE", Qt::CaseInsensitive) == 0)
+        return QByteArray("\xFF\xFE\x00\x00", 4);
+    if (canonEncoding.compare("UTF-32BE", Qt::CaseInsensitive) == 0)
+        return QByteArray("\x00\x00\xFE\xFF", 4);
+    return QByteArray();
+}
+
+} // namespace
+
+bool writeFile(const QString& path, const QByteArray& utf8, QString* error)
+{
+    return writeBytes(path, utf8, error);
+}
+
+bool writeFileEncoded(const QString& path, const QByteArray& utf8,
+                      const QString& encoding, bool addBOM, QString* error)
+{
+    const QString canon = canonicaliseEncoding(encoding);
+
+    // UTF-8 fast path — no transcoding, just optional BOM.
+    if (canon.isEmpty() ||
+        canon.compare(QStringLiteral("UTF-8"), Qt::CaseInsensitive) == 0) {
+        if (!addBOM) return writeBytes(path, utf8, error);
+        QByteArray out;
+        out.reserve(utf8.size() + 3);
+        out.append(bomFor("UTF-8"));
+        out.append(utf8);
+        return writeBytes(path, out, error);
+    }
+
+    // Decode UTF-8 to QString, then re-encode to the target codec.
+    const QString text = QString::fromUtf8(utf8);
+
+    // QStringEncoder requires a recognized codec name. If the platform doesn't
+    // ship one for `canon` (rare for the encodings we expose), bail with a
+    // clear error rather than silently writing garbage.
+    QStringEncoder enc(canon.toLatin1().constData());
+    if (!enc.isValid()) {
+        if (error)
+            *error = QStringLiteral("Codec não suportado: '%1'").arg(canon);
         return false;
     }
 
-    return true;
+    QByteArray encoded = enc.encode(text);
+
+    QByteArray out;
+    if (addBOM) {
+        const QByteArray bom = bomFor(canon);
+        out.reserve(bom.size() + encoded.size());
+        out.append(bom);
+    }
+    out.append(encoded);
+
+    return writeBytes(path, out, error);
 }
 
 } // namespace FileIO

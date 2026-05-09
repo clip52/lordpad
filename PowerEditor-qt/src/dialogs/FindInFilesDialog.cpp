@@ -1,5 +1,8 @@
 #include "FindInFilesDialog.h"
 
+#include "../FileIO.h"
+#include "../SearchEscapes.h"
+
 #include <QDialog>
 #include <QLineEdit>
 #include <QPushButton>
@@ -28,6 +31,11 @@
 #include <QMetaObject>
 #include <QMessageBox>
 #include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
+#include <QProcess>
+#include <QStandardPaths>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -98,15 +106,50 @@ void FindInFilesDialog::setupUi()
     m_regexChk   = new QCheckBox(tr("Regular expression"), this);
     m_hiddenChk  = new QCheckBox(tr("Include hidden"), this);
     m_symlinkChk = new QCheckBox(tr("Follow symlinks"), this);
+    m_useRgChk   = new QCheckBox(tr("Use ripgrep (rg)"), this);   // M11
+    m_extendedChk = new QCheckBox(tr("Extended (\\n, \\t, …)"), this);   // M12
     m_hiddenChk->setChecked(false);
     m_symlinkChk->setChecked(false);
+    {
+        // Default: on iff `rg` is on PATH. Disable + tooltip otherwise so the
+        // user knows why ripgrep mode isn't kicking in.
+        const QString rgPath = QStandardPaths::findExecutable(QStringLiteral("rg"));
+        m_useRgChk->setChecked(!rgPath.isEmpty());
+        if (rgPath.isEmpty()) {
+            m_useRgChk->setEnabled(false);
+            m_useRgChk->setToolTip(tr("`rg` (ripgrep) não foi encontrado no PATH."));
+        } else {
+            m_useRgChk->setToolTip(tr("Usa ripgrep — tipicamente 10–50× mais rápido."));
+        }
+    }
     opts->addWidget(m_caseChk);
     opts->addWidget(m_wordChk);
     opts->addWidget(m_regexChk);
     opts->addWidget(m_hiddenChk);
     opts->addWidget(m_symlinkChk);
+    opts->addWidget(m_useRgChk);
+    opts->addWidget(m_extendedChk);
     opts->addStretch(1);
     root->addLayout(opts);
+
+    // Extended and Regex are mutually exclusive — same convention as FindReplaceDialog.
+    connect(m_regexChk,    &QCheckBox::toggled, this, [this](bool on) {
+        if (on) m_extendedChk->setChecked(false);
+    });
+    connect(m_extendedChk, &QCheckBox::toggled, this, [this](bool on) {
+        if (on) m_regexChk->setChecked(false);
+    });
+
+    // ------- replace row (M12) -------
+    auto* replRow = new QHBoxLayout();
+    auto* replLabel = new QLabel(tr("Replace with:"), this);
+    m_replaceEdit = new QLineEdit(this);
+    m_replaceEdit->setPlaceholderText(tr("(opcional) substituição — Replace All percorre todos os hits"));
+    m_replaceAllBtn = new QPushButton(tr("Replace All"), this);
+    replRow->addWidget(replLabel);
+    replRow->addWidget(m_replaceEdit, 1);
+    replRow->addWidget(m_replaceAllBtn);
+    root->addLayout(replRow);
 
     // ------- buttons row -------
     auto* btns = new QHBoxLayout();
@@ -151,6 +194,7 @@ void FindInFilesDialog::setupUi()
     connect(m_closeBtn,  &QPushButton::clicked, this, &QDialog::reject);
     connect(m_tree, &QTreeView::doubleClicked, this, &FindInFilesDialog::onResultActivated);
     connect(m_pattern, &QLineEdit::returnPressed, this, &FindInFilesDialog::onSearch);
+    connect(m_replaceAllBtn, &QPushButton::clicked, this, &FindInFilesDialog::onReplaceAll);
 }
 
 // ---------------- public setters ----------------
@@ -247,6 +291,7 @@ void FindInFilesDialog::onStop()
 {
     if (!m_running) return;
     if (m_cancel) m_cancel->store(true);
+    if (m_rgProc) m_rgProc->kill();   // M11: also stop the rg subprocess
     m_stopped = true;
     m_status->setText(m_status->text() + QStringLiteral(" ") + tr("(stopping...)"));
 }
@@ -255,9 +300,14 @@ void FindInFilesDialog::onSearch()
 {
     if (m_running) return;
 
-    const QString pattern = m_pattern->text();
+    QString       pattern = m_pattern->text();
     const QString folder  = m_folder->text();
     const QString filter  = m_filter->text();
+
+    // M12: Extended escapes are expanded once at the entry point so both
+    // the QtConcurrent worker and the rg subprocess see the same literal text.
+    if (m_extendedChk && m_extendedChk->isChecked())
+        pattern = SearchEscapes::expandExtended(pattern);
 
     if (pattern.isEmpty()) {
         m_status->setText(tr("Pattern is empty."));
@@ -298,6 +348,14 @@ void FindInFilesDialog::onSearch()
     const bool includeHidden = m_hiddenChk->isChecked();
     const bool followSym     = m_symlinkChk->isChecked();
 
+    // M11: ripgrep fast path. Fall back to the QtConcurrent worker if rg
+    // isn't available or the user disabled the checkbox.
+    if (m_useRgChk && m_useRgChk->isChecked()
+        && startRipgrep(folder, pattern, filter, matchCase, wholeWord,
+                        regex, includeHidden, followSym)) {
+        return;
+    }
+
     if (!m_watcher) {
         m_watcher = new QFutureWatcher<void>(this);
         connect(m_watcher, &QFutureWatcher<void>::finished,
@@ -313,6 +371,86 @@ void FindInFilesDialog::onSearch()
                             includeHidden, followSym);
         });
     m_watcher->setFuture(future);
+}
+
+bool FindInFilesDialog::startRipgrep(const QString& folder, const QString& pattern,
+                                     const QString& filter, bool matchCase,
+                                     bool wholeWord, bool regex,
+                                     bool includeHidden, bool followSymlinks)
+{
+    const QString rgPath = QStandardPaths::findExecutable(QStringLiteral("rg"));
+    if (rgPath.isEmpty()) return false;
+
+    QStringList args;
+    args << QStringLiteral("--json")
+         << QStringLiteral("--no-heading")
+         << QStringLiteral("--with-filename")
+         << QStringLiteral("--line-number");
+    if (!matchCase)     args << QStringLiteral("--ignore-case");
+    if (wholeWord)      args << QStringLiteral("--word-regexp");
+    if (!regex)         args << QStringLiteral("--fixed-strings");
+    if (includeHidden)  args << QStringLiteral("--hidden");
+    if (followSymlinks) args << QStringLiteral("--follow");
+    if (!filter.isEmpty()) {
+        // The dialog accepts comma- or space-separated globs; forward each
+        // as `--glob` so rg's gitignore + glob filter applies cleanly.
+        const QStringList globs = filter.split(QRegularExpression(QStringLiteral(R"RX([\s,;])RX")),
+                                                Qt::SkipEmptyParts);
+        for (const QString& g : globs) args << QStringLiteral("--glob") << g;
+    }
+    args << QStringLiteral("--") << pattern << folder;
+
+    if (m_rgProc) { m_rgProc->kill(); m_rgProc->deleteLater(); m_rgProc = nullptr; }
+    m_rgBuf.clear();
+    m_rgProc = new QProcess(this);
+    connect(m_rgProc, &QProcess::readyReadStandardOutput, this, [this]() {
+        m_rgBuf += m_rgProc->readAllStandardOutput();
+        int nl;
+        while ((nl = m_rgBuf.indexOf('\n')) >= 0) {
+            QByteArray line = m_rgBuf.left(nl);
+            m_rgBuf.remove(0, nl + 1);
+            parseRipgrepLine(line);
+        }
+    });
+    connect(m_rgProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int /*code*/, QProcess::ExitStatus /*st*/) {
+                // Drain any tail without trailing newline.
+                if (!m_rgBuf.isEmpty()) parseRipgrepLine(m_rgBuf);
+                m_rgBuf.clear();
+                m_rgProc->deleteLater();
+                m_rgProc = nullptr;
+                onSearchFinished();
+            });
+    m_rgProc->start(rgPath, args);
+    if (!m_rgProc->waitForStarted(2000)) {
+        delete m_rgProc;
+        m_rgProc = nullptr;
+        return false;
+    }
+    return true;
+}
+
+void FindInFilesDialog::parseRipgrepLine(const QByteArray& line)
+{
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(line, &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) return;
+    const QJsonObject obj = doc.object();
+    if (obj.value("type").toString() != QStringLiteral("match")) return;
+
+    const QJsonObject data    = obj.value("data").toObject();
+    const QString filePath    = data.value("path").toObject().value("text").toString();
+    const QString lineText    = data.value("lines").toObject().value("text").toString();
+    const int     lineNumber  = data.value("line_number").toInt();
+    if (filePath.isEmpty() || lineNumber <= 0) return;
+
+    Hit h;
+    h.filePath   = filePath;
+    h.lineNumber = lineNumber;
+    h.lineText   = lineText.trimmed();
+    QList<Hit> one;
+    one.append(h);
+    receiveHits(one);
 }
 
 void FindInFilesDialog::onSearchFinished()
@@ -571,4 +709,89 @@ void FindInFilesDialog::runWorker(const QString& folder,
         m_elapsedMs = elapsed;
     }, Qt::QueuedConnection);
     flushBatch(true);
+}
+
+// ---------------- replace-in-files (M12) ----------------
+
+void FindInFilesDialog::onReplaceAll()
+{
+    if (m_running) {
+        QMessageBox::information(this, tr("Replace"),
+            tr("Aguarde a busca atual terminar."));
+        return;
+    }
+    if (m_fileNodes.isEmpty()) {
+        QMessageBox::information(this, tr("Replace"),
+            tr("Faça uma busca primeiro — o Replace percorre os arquivos com hits."));
+        return;
+    }
+    QString pattern     = m_pattern->text();
+    QString replacement = m_replaceEdit->text();
+    if (pattern.isEmpty()) {
+        QMessageBox::warning(this, tr("Replace"), tr("Padrão vazio."));
+        return;
+    }
+    const bool extended  = m_extendedChk && m_extendedChk->isChecked();
+    const bool regex     = m_regexChk    && m_regexChk->isChecked();
+    const bool matchCase = m_caseChk     && m_caseChk->isChecked();
+    const bool wholeWord = m_wordChk     && m_wordChk->isChecked();
+    if (extended) {
+        pattern     = SearchEscapes::expandExtended(pattern);
+        replacement = SearchEscapes::expandExtended(replacement);
+    }
+
+    // Build the regex once. For non-regex mode we still use QRegularExpression
+    // with literal text (escaped) — it gives us a single code path for whole-word
+    // and case-insensitive handling.
+    QString rxSource = regex ? pattern : QRegularExpression::escape(pattern);
+    if (wholeWord) rxSource = QStringLiteral("\\b") + rxSource + QStringLiteral("\\b");
+    QRegularExpression rx(rxSource,
+        matchCase ? QRegularExpression::NoPatternOption
+                  : QRegularExpression::CaseInsensitiveOption);
+    if (!rx.isValid()) {
+        QMessageBox::warning(this, tr("Replace"),
+            tr("Regex inválida: %1").arg(rx.errorString()));
+        return;
+    }
+
+    const int fileCount = m_fileNodes.size();
+    const auto answer = QMessageBox::question(this, tr("Replace All"),
+        tr("Substituir em %1 arquivo(s)?\n\n"
+           "Os arquivos serão regravados em UTF-8 — faça commit ou backup antes "
+           "se eles tiverem encoding diferente.").arg(fileCount),
+        QMessageBox::Yes | QMessageBox::No);
+    if (answer != QMessageBox::Yes) return;
+
+    int filesChanged = 0;
+    int totalReplacements = 0;
+    QStringList failures;
+    const QStringList paths = m_fileNodes.keys();
+    for (const QString& path : paths) {
+        FileIO::LoadResult lr = FileIO::readFile(path);
+        if (!lr.ok) { failures << path; continue; }
+        QString text = QString::fromUtf8(lr.utf8);
+
+        // Count replacements before applying so we have an honest summary.
+        int replacementsHere = 0;
+        auto it = rx.globalMatch(text);
+        while (it.hasNext()) { it.next(); ++replacementsHere; }
+        if (replacementsHere == 0) continue;
+
+        text.replace(rx, replacement);
+        QString err;
+        if (!FileIO::writeFile(path, text.toUtf8(), &err)) {
+            failures << QStringLiteral("%1 — %2").arg(path, err);
+            continue;
+        }
+        ++filesChanged;
+        totalReplacements += replacementsHere;
+    }
+
+    QString msg = tr("%1 substituição(ões) em %2 arquivo(s).")
+                      .arg(totalReplacements).arg(filesChanged);
+    if (!failures.isEmpty()) {
+        msg += QStringLiteral("\n\n") + tr("Falhas:") + QStringLiteral("\n")
+             + failures.join('\n');
+    }
+    QMessageBox::information(this, tr("Replace All"), msg);
 }

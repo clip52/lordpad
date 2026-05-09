@@ -11,6 +11,8 @@
 #include <QFileDialog>
 #include <QSettings>
 #include <QDir>
+#include <QFileInfo>
+#include <QRegularExpression>
 #include <QTimer>
 #include <QFontMetrics>
 #include <QWidget>
@@ -99,6 +101,12 @@ ExecOutputPanel::ExecOutputPanel(QWidget* parent)
     connect(m_stopBtn,  &QToolButton::clicked, this, &ExecOutputPanel::onStopClicked);
     connect(m_clearBtn, &QToolButton::clicked, this, &ExecOutputPanel::onClearClicked);
     connect(m_cmdEdit,  &QLineEdit::returnPressed, this, &ExecOutputPanel::onRunClicked);
+
+    // M9: double-click on a "file:line[:col]" line jumps to source.
+    connect(m_out, &ScintillaEditBase::doubleClick, this,
+            [this](Scintilla::Position pos, Scintilla::Position line) {
+                onOutputDoubleClick(static_cast<int>(pos), static_cast<int>(line));
+            });
 }
 
 ExecOutputPanel::~ExecOutputPanel()
@@ -282,4 +290,60 @@ void ExecOutputPanel::appendOutput(const QByteArray& bytes)
     m_out->appendText(bytes.size(), bytes.constData());
     m_out->setReadOnly(true);
     m_out->gotoPos(m_out->length());
+}
+
+// M9: double-click error parser. Recognises the four most common shapes
+// emitted by gcc/clang, python tracebacks, rust, and `grep -nH` style:
+//   /abs/or/rel/path:LINE:COL: <message>     gcc/clang/eslint/clippy
+//   /path:LINE: <message>                    grep, ruby, php
+//   File "path", line LINE                   Python traceback
+//   path(LINE,COL) ... or path(LINE)         MSVC-ish, some tools
+// The first match per line wins; relative paths are resolved against the
+// panel's current working directory.
+void ExecOutputPanel::onOutputDoubleClick(int /*pos*/, int line)
+{
+    if (!m_out) return;
+    QByteArray raw = m_out->getLine(line);
+    QString text = QString::fromUtf8(raw).trimmed();
+    if (text.isEmpty()) return;
+
+    static const QRegularExpression rxColon(
+        QStringLiteral(R"RX(^([^:\s][^:]*):(\d+)(?::(\d+))?\b)RX"));
+    static const QRegularExpression rxPython(
+        QStringLiteral(R"RX(File\s+"([^"]+)"\s*,\s*line\s+(\d+))RX"));
+    static const QRegularExpression rxParen(
+        QStringLiteral(R"RX(^([^\s(]+)\((\d+)(?:,(\d+))?\))RX"));
+
+    auto resolve = [this](const QString& candidate) -> QString {
+        if (candidate.isEmpty()) return {};
+        QFileInfo fi(candidate);
+        if (fi.isAbsolute() && fi.exists()) return fi.absoluteFilePath();
+        QFileInfo rel(QDir(m_workingDir), candidate);
+        if (rel.exists()) return rel.absoluteFilePath();
+        return {};
+    };
+
+    QString file; int srcLine = 0; int srcCol = 1;
+    if (auto m = rxColon.match(text); m.hasMatch()) {
+        file    = m.captured(1);
+        srcLine = m.captured(2).toInt();
+        srcCol  = m.captured(3).toInt();
+        if (srcCol <= 0) srcCol = 1;
+    } else if (auto m = rxPython.match(text); m.hasMatch()) {
+        file    = m.captured(1);
+        srcLine = m.captured(2).toInt();
+        srcCol  = 1;
+    } else if (auto m = rxParen.match(text); m.hasMatch()) {
+        file    = m.captured(1);
+        srcLine = m.captured(2).toInt();
+        srcCol  = m.captured(3).toInt();
+        if (srcCol <= 0) srcCol = 1;
+    } else {
+        return;   // no recognized pattern on this line
+    }
+
+    const QString resolved = resolve(file);
+    if (resolved.isEmpty() || srcLine <= 0) return;
+
+    emit locationActivated(resolved, srcLine, srcCol);
 }

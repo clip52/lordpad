@@ -1,6 +1,7 @@
 #include "FindReplaceDialog.h"
 
 #include "ScintillaEdit.h"
+#include "../SearchEscapes.h"
 
 #include <QDialog>
 #include <QLineEdit>
@@ -106,12 +107,22 @@ FindReplaceDialog::FindReplaceDialog(ScintillaEdit* editor, QWidget* parent)
     m_chkMatchCase = new QCheckBox(tr("Match case"),         optionsBox);
     m_chkWholeWord = new QCheckBox(tr("Whole word"),         optionsBox);
     m_chkRegex     = new QCheckBox(tr("Regular expression"), optionsBox);
+    m_chkExtended  = new QCheckBox(tr("Extended (\\n, \\t, \\xNN…)"), optionsBox);
     m_chkWrap      = new QCheckBox(tr("Wrap around"),        optionsBox);
     m_chkWrap->setChecked(true);
+
+    // Extended and Regex are mutually exclusive: enabling one disables the other.
+    connect(m_chkRegex, &QCheckBox::toggled, this, [this](bool on) {
+        if (on) m_chkExtended->setChecked(false);
+    });
+    connect(m_chkExtended, &QCheckBox::toggled, this, [this](bool on) {
+        if (on) m_chkRegex->setChecked(false);
+    });
 
     optionsLayout->addWidget(m_chkMatchCase);
     optionsLayout->addWidget(m_chkWholeWord);
     optionsLayout->addWidget(m_chkRegex);
+    optionsLayout->addWidget(m_chkExtended);
     optionsLayout->addWidget(m_chkWrap);
     optionsLayout->addStretch(1);
 
@@ -214,11 +225,13 @@ bool FindReplaceDialog::findDirectional(bool forward)
         return false;
     }
 
-    const QString needleStr = m_findEdit->text();
+    QString needleStr = m_findEdit->text();
     if (needleStr.isEmpty()) {
         setStatus(tr("Nothing to search for"));
         return false;
     }
+    if (m_chkExtended && m_chkExtended->isChecked())
+        needleStr = SearchEscapes::expandExtended(needleStr);
     const QByteArray needle = needleStr.toUtf8();
 
     const long long docLen = m_editor->length();
@@ -289,7 +302,10 @@ void FindReplaceDialog::onReplace()
 
     const long long selStart = m_editor->selectionStart();
     const long long selEnd   = m_editor->selectionEnd();
-    const QByteArray replacement = m_replaceEdit->text().toUtf8();
+    QString replacementStr = m_replaceEdit->text();
+    if (m_chkExtended && m_chkExtended->isChecked())
+        replacementStr = SearchEscapes::expandExtended(replacementStr);
+    const QByteArray replacement = replacementStr.toUtf8();
     const bool useRegex = (m_chkRegex && m_chkRegex->isChecked());
 
     // Replace only if the current selection is the last match we found.
@@ -328,13 +344,18 @@ void FindReplaceDialog::onReplaceAll()
         return;
     }
 
-    const QString needleStr = m_findEdit->text();
+    QString needleStr = m_findEdit->text();
     if (needleStr.isEmpty()) {
         setStatus(tr("Nothing to search for"));
         return;
     }
+    QString replacementStr = m_replaceEdit->text();
+    if (m_chkExtended && m_chkExtended->isChecked()) {
+        needleStr      = SearchEscapes::expandExtended(needleStr);
+        replacementStr = SearchEscapes::expandExtended(replacementStr);
+    }
     const QByteArray needle = needleStr.toUtf8();
-    const QByteArray replacement = m_replaceEdit->text().toUtf8();
+    const QByteArray replacement = replacementStr.toUtf8();
     const bool useRegex = (m_chkRegex && m_chkRegex->isChecked());
 
     m_editor->setSearchFlags(buildSearchFlags());

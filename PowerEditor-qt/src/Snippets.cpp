@@ -7,6 +7,9 @@
 #include <QChar>
 #include <QRegularExpression>
 
+#include <algorithm>
+#include <limits>
+
 #include "ScintillaEdit.h"
 
 namespace {
@@ -18,71 +21,80 @@ inline bool isWordChar(QChar c) {
     return c.isLetterOrNumber() || c == QLatin1Char('_');
 }
 
-// Expand placeholder syntax. Returns expanded text and (in-out) records the
-// byte offset of the first ${1} placeholder relative to the start of the
-// returned UTF-8 string. caretByteOffset is set to -1 if no ${1} is present.
-QString expandPlaceholders(const QString& body, int& caretByteOffset) {
-    caretByteOffset = -1;
+// One placeholder slot found in the snippet body. byteStart / byteLen are
+// relative to the *expanded* UTF-8 string and point at the default text
+// (or a 0-length insertion when the placeholder had no default).
+struct ParsedStop {
+    int number   = 0;
+    int byteStart = 0;
+    int byteLen   = 0;
+};
+
+// Expand placeholder syntax and return both the expanded text *and* a list
+// of stops in source order. Source order matters because ${1} can appear
+// after ${2} in the body — we still want to navigate ${1}, ${2}, ..., ${0}.
+QString expandPlaceholders(const QString& body, QList<ParsedStop>& outStops) {
+    outStops.clear();
     QString out;
     out.reserve(body.size());
 
-    int firstOnePos = -1; // position in 'out' (QString units) of the first ${1}
+    auto emitStop = [&](int n, const QString& defaultText) {
+        ParsedStop s;
+        s.number    = n;
+        s.byteStart = out.toUtf8().size();
+        out.append(defaultText);
+        s.byteLen   = out.toUtf8().size() - s.byteStart;
+        outStops.append(s);
+    };
 
     int i = 0;
     const int n = body.size();
     while (i < n) {
         const QChar c = body.at(i);
         if (c == QLatin1Char('$') && i + 1 < n && body.at(i + 1) == QLatin1Char('{')) {
-            // Try parse ${N} or ${N:default}
             int j = i + 2;
-            int numStart = j;
+            const int numStart = j;
             while (j < n && body.at(j).isDigit()) ++j;
             if (j > numStart && j < n) {
                 bool ok = false;
                 const int num = body.mid(numStart, j - numStart).toInt(&ok);
                 if (ok && body.at(j) == QLatin1Char('}')) {
-                    // ${N}
-                    if (num == 1 && firstOnePos < 0)
-                        firstOnePos = out.size();
+                    emitStop(num, QString());
                     i = j + 1;
                     continue;
                 } else if (ok && body.at(j) == QLatin1Char(':')) {
-                    // ${N:default}
                     int k = j + 1;
                     int depth = 1;
                     QString def;
                     while (k < n && depth > 0) {
                         const QChar ck = body.at(k);
                         if (ck == QLatin1Char('{')) {
-                            ++depth;
-                            def.append(ck);
-                            ++k;
+                            ++depth; def.append(ck); ++k;
                         } else if (ck == QLatin1Char('}')) {
                             --depth;
                             if (depth == 0) break;
-                            def.append(ck);
-                            ++k;
-                        } else {
-                            def.append(ck);
-                            ++k;
-                        }
+                            def.append(ck); ++k;
+                        } else { def.append(ck); ++k; }
                     }
                     if (k < n && body.at(k) == QLatin1Char('}')) {
-                        if (num == 1 && firstOnePos < 0)
-                            firstOnePos = out.size();
-                        out.append(def);
+                        emitStop(num, def);
                         i = k + 1;
                         continue;
                     }
                 }
             }
         }
+        // Bare $N (no braces) — also a valid LSP-style tabstop ref.
+        if (c == QLatin1Char('$') && i + 1 < n && body.at(i + 1).isDigit()) {
+            int j = i + 1;
+            while (j < n && body.at(j).isDigit()) ++j;
+            const int num = body.mid(i + 1, j - i - 1).toInt();
+            emitStop(num, QString());
+            i = j;
+            continue;
+        }
         out.append(c);
         ++i;
-    }
-
-    if (firstOnePos >= 0) {
-        caretByteOffset = out.left(firstOnePos).toUtf8().size();
     }
     return out;
 }
@@ -297,24 +309,140 @@ bool Snippets::tryExpand(ScintillaEdit* editor, const QString& currentLexerName)
             return false;
     }
 
-    int caretRelByte = -1;
-    const QString expanded = expandPlaceholders(sn.body, caretRelByte);
+    QList<ParsedStop> parsed;
+    const QString expanded = expandPlaceholders(sn.body, parsed);
     const QByteArray expandedUtf8 = expanded.toUtf8();
 
-    // Perform the edit.
+    // Cancel any prior session before we start a new one.
+    endSession();
+
     editor->beginUndoAction();
     editor->setTargetRange(static_cast<sptr_t>(replaceStart),
                            static_cast<sptr_t>(caret));
     editor->replaceTarget(static_cast<sptr_t>(expandedUtf8.size()),
                           expandedUtf8.constData());
-
-    sptr_t newCaret;
-    if (caretRelByte >= 0)
-        newCaret = replaceStart + caretRelByte;
-    else
-        newCaret = replaceStart + expandedUtf8.size();
-
-    editor->setSel(newCaret, newCaret);
     editor->endUndoAction();
+
+    // Promote parsed stops to absolute byte offsets in the buffer, then
+    // sort them as 1, 2, 3, ..., N, then 0 (final caret).
+    QList<Stop> stops;
+    stops.reserve(parsed.size());
+    for (const ParsedStop& p : parsed) {
+        Stop s;
+        s.number = p.number;
+        s.pos    = static_cast<int>(replaceStart) + p.byteStart;
+        s.len    = p.byteLen;
+        stops.append(s);
+    }
+    std::sort(stops.begin(), stops.end(), [](const Stop& a, const Stop& b) {
+        // 0 is the exit position — always last.
+        const int an = (a.number == 0) ? std::numeric_limits<int>::max() : a.number;
+        const int bn = (b.number == 0) ? std::numeric_limits<int>::max() : b.number;
+        return an < bn;
+    });
+
+    if (stops.isEmpty()) {
+        editor->setSel(replaceStart + expandedUtf8.size(),
+                       replaceStart + expandedUtf8.size());
+        return true;
+    }
+
+    m_session.editor       = editor;
+    m_session.stops        = stops;
+    m_session.currentIndex = -1;
+
+    connect(editor, &ScintillaEditBase::modified,
+            this, &Snippets::onEditorModified, Qt::UniqueConnection);
+
+    selectStop(0);
     return true;
+}
+
+bool Snippets::selectStop(int index)
+{
+    if (!m_session.editor || index < 0 || index >= m_session.stops.size()) {
+        endSession();
+        return false;
+    }
+    auto* sci = m_session.editor.data();
+    const Stop& s = m_session.stops[index];
+
+    // Stop 0 is the "final caret" position — collapse selection there and
+    // end the session.
+    if (s.number == 0) {
+        sci->setSel(s.pos, s.pos);
+        endSession();
+        return false;
+    }
+    sci->setSel(s.pos, s.pos + s.len);
+    m_session.currentIndex = index;
+    return true;
+}
+
+bool Snippets::hasActiveSession(ScintillaEdit* editor) const {
+    return m_session.editor && m_session.editor.data() == editor
+           && m_session.currentIndex >= 0;
+}
+
+bool Snippets::advanceTabstop(ScintillaEdit* editor) {
+    if (!hasActiveSession(editor)) return false;
+    return selectStop(m_session.currentIndex + 1);
+}
+
+bool Snippets::retreatTabstop(ScintillaEdit* editor) {
+    if (!hasActiveSession(editor)) return false;
+    if (m_session.currentIndex <= 0) return true;   // consume but stay
+    return selectStop(m_session.currentIndex - 1);
+}
+
+void Snippets::cancelSession(ScintillaEdit* /*editor*/) {
+    endSession();
+}
+
+void Snippets::endSession()
+{
+    if (m_session.editor) {
+        disconnect(m_session.editor.data(), &ScintillaEditBase::modified,
+                   this, &Snippets::onEditorModified);
+    }
+    m_session = Session{};
+}
+
+void Snippets::onEditorModified(Scintilla::ModificationFlags type,
+                                Scintilla::Position position,
+                                Scintilla::Position length,
+                                Scintilla::Position /*linesAdded*/,
+                                const QByteArray& /*text*/,
+                                Scintilla::Position /*line*/,
+                                Scintilla::FoldLevel /*foldNow*/,
+                                Scintilla::FoldLevel /*foldPrev*/)
+{
+    if (!m_session.editor || m_session.currentIndex < 0) return;
+
+    const auto mask = Scintilla::ModificationFlags::InsertText
+                    | Scintilla::ModificationFlags::DeleteText;
+    if (static_cast<int>(type & mask) == 0) return;
+
+    const bool insert = (static_cast<int>(type & Scintilla::ModificationFlags::InsertText) != 0);
+    const int delta = insert ? static_cast<int>(length) : -static_cast<int>(length);
+    const int changeAt = static_cast<int>(position);
+
+    Stop& current = m_session.stops[m_session.currentIndex];
+
+    // Edit inside the active stop: stretch / shrink its length, but keep
+    // its starting position the same.
+    if (changeAt >= current.pos && changeAt <= current.pos + current.len) {
+        current.len = qMax(0, current.len + delta);
+    } else if (changeAt < current.pos) {
+        // Edit *before* the active stop (rare — usually means user moved
+        // out and started typing): nudge our anchor too.
+        current.pos += delta;
+    }
+
+    // Shift every stop that lives strictly after the change point.
+    for (int i = 0; i < m_session.stops.size(); ++i) {
+        if (i == m_session.currentIndex) continue;
+        Stop& s = m_session.stops[i];
+        if (s.pos > changeAt) s.pos += delta;
+    }
 }

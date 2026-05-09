@@ -25,22 +25,15 @@ QAction* LanguagesMenu::addLanguageAction(QMenu* parentMenu, const QString& labe
 }
 
 QMenu* LanguagesMenu::createMenu(QWidget* menuParent) {
-    m_menu = new QMenu(tr("&Languages"), menuParent);
+    m_menu = new QMenu(tr("&Linguagens"), menuParent);
     m_group = new QActionGroup(this);
     m_group->setExclusive(true);
 
-    // --- Favorites (in this exact order) ---
-    addLanguageAction(m_menu, tr("C#"),         QStringLiteral("cpp"));
-    addLanguageAction(m_menu, tr("Python"),     QStringLiteral("python"));
-    addLanguageAction(m_menu, tr("JavaScript"), QStringLiteral("javascript"));
-    addLanguageAction(m_menu, tr("PHP"),        QStringLiteral("phpscript"));
-    addLanguageAction(m_menu, tr("MySQL"),      QStringLiteral("sql"));
-    addLanguageAction(m_menu, tr("JSON"),       QStringLiteral("json"));
-
-    m_menu->addSeparator();
-
-    // --- Plain Text first in the alphabetical section (directly under the menu) ---
+    // M14: removed the duplicated "favorites" block (C#, Python, JavaScript,
+    // PHP, MySQL, JSON) from the root — they are already reachable under the
+    // C/J/M/P letter submenus, so listing them twice was just clutter.
     addLanguageAction(m_menu, tr("Plain Text"), QString());
+    m_menu->addSeparator();
 
     // --- Full alphabetical list of all languages ---
     // The six "favorites" pinned at the top are ALSO included here so they

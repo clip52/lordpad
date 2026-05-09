@@ -53,6 +53,7 @@ private:
     QCheckBox*   m_chkMatchCase = nullptr;
     QCheckBox*   m_chkWholeWord = nullptr;
     QCheckBox*   m_chkRegex = nullptr;
+    QCheckBox*   m_chkExtended = nullptr;   // M12: Notepad++-style extended escapes
     QCheckBox*   m_chkWrap = nullptr;
 
     // Cache of last successful match (used by Replace)
