@@ -118,8 +118,8 @@ sudo apt install qt6-base-dev qt6-tools-dev qt6-5compat-dev \
 ### Compilar
 
 ```bash
-git clone https://github.com/clip52/lordclip.git
-cd lordclip
+git clone https://github.com/clip52/lordpad.git
+cd lordpad
 mkdir build && cd build
 cmake -S ../PowerEditor-qt -B .
 cmake --build . -j$(nproc)
@@ -163,7 +163,7 @@ A ausência de qualquer um deles desabilita o painel correspondente, mas o edito
 ## Estrutura
 
 ```
-lordclip/
+lordpad/
 ├── PowerEditor-qt/        ← código-fonte do LordPad (Qt6)
 │   ├── src/               ← C++ — MainWindow, painéis, dialogs, helpers
 │   ├── resources/         ← qrc, ícone, themes (qss)
@@ -187,7 +187,7 @@ GPLv3+ (herdado do Notepad++ original). Scintilla é distribuído sob HPND.
 ## Contribuir
 
 Issues e PRs são bem-vindos. Convenções:
-- Strings de UI sempre em PT-BR
+- Strings de UI preferencialmente em PT-BR
 - Cap de 25 entradas por menu top-level
 - Painéis novos seguem o pattern `QDockWidget` + `setObjectName` (para save/restore de layout)
 
@@ -195,4 +195,4 @@ Para escrever plugins veja [`PowerEditor-qt/plugins/examples/README.md`](PowerEd
 
 ---
 
-**Repositório:** https://github.com/clip52/lordclip
+**Repositório:** https://github.com/clip52/lordpad
